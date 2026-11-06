@@ -138,18 +138,50 @@ kubectl -n boutique port-forward svc/frontend 8080:80
 - port-forward 8080 后：首页 200（9 个商品链接），`/product/OLJCESPC7Z` 200，`POST /cart` 302，`/cart` 里有 Sunglasses，`setCurrency EUR` 302（首页价格变成 €17.68），`/cart/checkout` 200
 - loadgenerator 压测：从 05:46:31Z 跑到 05:48:36Z（约 2 分 05 秒），读取的是 Locust 的累计统计；同一时间段 11 个后端服务日志里的 error/exception 都是 0，loadgenerator 日志里也没有报错
 
-### Docker 和 K8s 压测对比（Locust，USERS=10，RATE=1，约 2 分钟）
-| 指标 | Docker（compose，单机 bridge 网络） | K8s（kind 1+3，默认调度） |
-|---|---|---|
-| 请求数 | 289 | 289 |
-| 失败数 | 0 (0.00%) | 0 (0.00%) |
-| Aggregated 平均 | 17 ms | 6 ms |
-| Aggregated 中位数 | 7 ms | 6 ms |
-| Aggregated 最大 | 212 ms | 17 ms |
-| GET / 中位数 | 51 ms | 8 ms |
-| POST /setCurrency 中位数 | 50 ms | 8 ms |
+### Docker 和 K8s 压测对比（Locust 2.43.0，USERS=10，RATE=1，约 2 分钟）
 
-数据来源（已用 `kubectl logs --timestamps` 核对）：K8s 这一列取的是 Locust 在 **05:48:35Z** 的累计快照，也就是 Pod 启动（05:46:31Z）后约 2 分 04 秒；10 秒后的 05:48:45Z 快照是 308 请求、0 失败、平均 6 ms、中位数 6 ms、最大 21 ms，结论不变。Docker 这一列取的是 loadgenerator 启动约 2 分钟后 `docker compose logs` 里最后一个快照。
+Locust 以 headless 模式运行，每 2 秒打印一次**从启动开始累计**的统计。下表各列都是某一时刻的累计快照，"t" 是距 Locust 启动的秒数。
+
+| 指标 | Docker（t≈126 s） | K8s，之前报告的（t≈122 s） | K8s，时间对齐（t≈126 s） |
+|---|---|---|---|
+| 快照时间 (UTC) | 2026-11-04 约 15:05:31 | 2026-11-06 05:48:35 | 2026-11-06 05:48:39 |
+| 请求数 | 289 | 289 | 299 |
+| 失败数 | 0 (0.00%) | 0 (0.00%) | 0 (0.00%) |
+| Aggregated 平均 | 17 ms | 6 ms | 6 ms |
+| Aggregated 中位数 | 7 ms | 6 ms | 6 ms |
+| Aggregated 最小 / 最大 | 3 / 212 ms | 3 / 17 ms | 3 / 21 ms |
+| Aggregated p95 | 无（见下） | 无 | 无 |
+| GET / 中位数（请求数） | 51 ms (20) | 8 ms (23) | 8 ms (23) |
+| POST /setCurrency 中位数（请求数） | 50 ms (29) | 8 ms (26) | 8 ms (28) |
+
+**为什么两边都是 289：巧合，两份数据是各自独立的。** 证据如下：
+- 两次运行的 Locust 实例不同：Docker 的是容器 `dd4c4f766bfc`，2026-11-04 15:03:25 UTC 启动；K8s 的是 Pod `loadgenerator-9878487f4-kkt97`（在 colocation-worker3 上），2026-11-06 05:46:33 UTC 启动。两次相隔约 38.7 小时。
+- 两边的分接口请求数不同：GET / 是 20 对 23，GET /cart 是 28 对 43，POST /cart 是 28 对 34，POST /cart/checkout 是 12 对 10；延迟分布也完全不同（最大值 212 ms 对 17 ms）。
+- 两边达到 289 的时间点也不同：Docker 在 t≈126 s，K8s 在 t≈122 s。以 t≈126 s 对齐比较时，K8s 是 299。之前汇报 289，是因为我当时在 05:48:36 读日志，读到的最后一个快照恰好是 289。
+- Locust 的请求数主要由虚拟用户的随机等待时间决定：`src/loadgenerator/locustfile.py` 里是 `wait_time = between(1, 10)`，每个任务之间等 1–10 秒（平均 5.5 秒），10 个用户算下来约 2 req/s，和服务快慢基本无关。所以两边在差不多同样时长内的总数都落在 280–300 附近，并不奇怪。
+
+**为什么没有 p95：** loadgenerator 镜像以 `locust --headless -u 10 -r 1` 运行，没有设置 `--run-time`。Locust 只会在压测**结束**时打印 percentile 表，运行中的周期快照只有 Avg/Min/Max/Med。两次压测都没有结束（Docker 是被 `down.sh` 直接删掉的，K8s 的还在运行），所以日志里找不到 p95（`grep -ciE 'percentile|95%'` 两个文件都返回 0）。下一阶段如果需要 p95/p99，建议用 `--run-time` 或 `--csv` 运行一个单独的 Locust 来做对比。
+
+**数据来源和复现命令：**
+```bash
+# K8s：Locust 启动时间和累计快照
+kubectl -n boutique get pod loadgenerator-9878487f4-kkt97 \
+  -o jsonpath='{.status.containerStatuses[0].state.running.startedAt}'      # 2026-11-06T05:46:31Z（容器）
+kubectl -n boutique logs loadgenerator-9878487f4-kkt97 -c main --timestamps \
+  | grep -m1 'Starting Locust'                                               # 05:46:33.216Z
+kubectl -n boutique logs loadgenerator-9878487f4-kkt97 -c main --timestamps \
+  | grep Aggregated | awk '$1>="2026-11-06T05:48:29" && $1<="2026-11-06T05:48:40"'
+#   05:48:35.306Z  289  0(0.00%) | 6 3 17 6
+#   05:48:37.308Z  298  0(0.00%) | 6 3 21 6
+#   05:48:39.310Z  299  0(0.00%) | 6 3 21 6
+
+# Docker（容器已在阶段 1 用 down.sh 删除，日志是当时保存的）
+docker compose --profile load logs --no-log-prefix loadgenerator > /tmp/lg.log   # 2026-11-04 15:05:32 +08 保存
+# 压测开始：up.sh --load 在 2026-11-04T15:03:21Z 执行，Locust 在 15:03:25 UTC 启动
+```
+两份原始日志已归档到 `results/task1/`。按 `.gitignore` 的约定这个目录不进 git，所以这里只记录 sha256：
+- `docker-loadgenerator.log`：`c441415500fe711f0b0d2c8b68796c8c2056a04eec3b20394d8f50743391b967`
+- `k8s-loadgenerator-kkt97.log`（带 `--timestamps`，截至 06:05:48Z）：`3f06030befe71aab1797e7653402bb74155c9a064ee8429b7225589f4b86619c`
 
 说明：Docker 那一轮是在刚启动后不久跑的，GET / 和 /setCurrency 明显偏慢，平均值也被拉高了；最可能的原因是 JVM 的 adservice、Python 服务和 Go 服务都还在预热，这一点**没有专门验证**。K8s 这一轮跑之前，服务已经运行了约 17 分钟。两轮的负载很低（约 2 req/s），运行条件也不一样，**这张表不能当作网络延迟的对比结论**，只能说明两种部署都能正常承载负载。
 
