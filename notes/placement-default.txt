@@ -1,0 +1,18 @@
+# Default scheduling baseline. kubectl -n boutique get pods -o wide
+# context: kind-colocation  captured: 2026-11-06T05:48:55Z
+# cluster: kind 'colocation' (1 control-plane + 3 workers, all Docker containers on ONE physical host)
+# images: v0.10.7 (release/kubernetes-manifests.yaml @ microservices-demo c7cb6d5b), no scheduling rules
+# note: loadgenerator pod was recreated (kkt97) after busybox pull fix; old pod 8xqcw had been on colocation-worker
+NAME                                     READY   STATUS    RESTARTS   AGE     IP           NODE                 NOMINATED NODE   READINESS GATES
+adservice-84b79f4569-sthmk               1/1     Running   0          19m     10.244.1.2   colocation-worker    <none>           <none>
+cartservice-574c7f4cdd-g2f4z             1/1     Running   0          19m     10.244.2.4   colocation-worker3   <none>           <none>
+checkoutservice-7ddc4696cf-dttrz         1/1     Running   0          19m     10.244.3.2   colocation-worker2   <none>           <none>
+currencyservice-6478b9fcf7-nttpt         1/1     Running   0          19m     10.244.3.3   colocation-worker2   <none>           <none>
+emailservice-59d546db77-75fgq            1/1     Running   0          19m     10.244.1.3   colocation-worker    <none>           <none>
+frontend-54b9f9678-d686s                 1/1     Running   0          19m     10.244.3.5   colocation-worker2   <none>           <none>
+loadgenerator-9878487f4-kkt97            1/1     Running   0          2m26s   10.244.2.6   colocation-worker3   <none>           <none>
+paymentservice-78478447c-tnxg2           1/1     Running   0          19m     10.244.2.5   colocation-worker3   <none>           <none>
+productcatalogservice-99c4c7c7f-mr589    1/1     Running   0          19m     10.244.3.4   colocation-worker2   <none>           <none>
+recommendationservice-59654c7cb9-6m696   1/1     Running   0          19m     10.244.2.3   colocation-worker3   <none>           <none>
+redis-cart-6fdc7894b7-4wcnt              1/1     Running   0          19m     10.244.3.6   colocation-worker2   <none>           <none>
+shippingservice-57457d4b97-k2pfr         1/1     Running   0          19m     10.244.2.2   colocation-worker3   <none>           <none>

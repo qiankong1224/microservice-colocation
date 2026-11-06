@@ -1,0 +1,17 @@
+# kind cluster for the colocation study: 1 control-plane + 3 workers.
+# NOTE: all nodes are Docker containers on the SAME physical host.
+# Create:  kind create cluster --name colocation --config k8s/kind-config.yaml
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+name: colocation
+nodes:
+  - role: control-plane
+  - role: worker
+    labels:
+      colocation/worker: "w1"
+  - role: worker
+    labels:
+      colocation/worker: "w2"
+  - role: worker
+    labels:
+      colocation/worker: "w3"
